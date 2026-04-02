@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard IoT - Análisis de Aglomeraciones</title>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #e2e8f0;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-title {
+            flex: 1;
+        }
+
+        h1 {
+            color: #fff;
+            font-size: 2em;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 0.9em;
+        }
+
+        .status-container {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .status {
+            padding: 10px 20px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .status.connected {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status.connected::before {
+            background: #10b981;
+        }
+
+        .status.disconnected {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .status.disconnected::before {
+            background: #ef4444;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 25px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.85em;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1;
+        }
+
+        .stat-change {
+            margin-top: 10px;
+            font-size: 0.85em;
+            padding: 4px 12px;
+            border-radius: 8px;
+            display: inline-block;
+        }
+
+        .stat-change.up {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .stat-change.down {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        /* Charts Grid */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .chart-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 25px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chart-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        /* History Table */
+        .history-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            padding: 25px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .history-table th {
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+            font-weight: 600;
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .history-table td {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            color: #e2e8f0;
+        }
+
+        .history-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge {
+            padding: 4px 12px;
+            border-radius: 8px;
+            font-size: 0.8em;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .badge.success {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .badge.danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .badge.info {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+        }
+
+        /* Alert Banner */
+        .alert-banner {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .alert-banner.active {
+            display: flex;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert-icon {
+            font-size: 2em;
+        }
+
+        .alert-content {
+            flex: 1;
+        }
+
+        .alert-title {
+            font-weight: 700;
+            font-size: 1.1em;
+            color: #ef4444;
+            margin-bottom: 5px;
+        }
+
+        .alert-description {
+            color: #fca5a5;
+            font-size: 0.9em;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                gap: 20px;
+                text-align: center;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-title">
+                <h1>Sistema IoT - Análisis de Aglomeraciones</h1>
+                <p class="subtitle">Detección de Personas y Análisis Emocional en Tiempo Real</p>
+            </div>
+            <div class="status-container">
+                <div id="connectionStatus" class="status disconnected">Desconectado</div>
+                <div id="timestamp" class="subtitle">--:--:--</div>
+            </div>
+        </header>
+
+        <!-- Alert Banner -->
+        <div id="alertBanner" class="alert-banner">
+            <div class="alert-icon">🚨</div>
+            <div class="alert-content">
+                <div class="alert-title">¡Aglomeración Detectada!</div>
+                <div class="alert-description">Se ha superado el umbral de 50 personas en el área monitoreada</div>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">▣</div>
+                <div class="stat-label">Personas Detectadas</div>
+                <div class="stat-value" id="statPersonas">0</div>
+                <span class="stat-change up" id="changePersonas" style="display:none">+0</span>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">◉</div>
+                <div class="stat-label">Rostros Analizados</div>
+                <div class="stat-value" id="statCaras">0</div>
+                <span class="stat-change up" id="changeCaras" style="display:none">+0</span>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">◈</div>
+                <div class="stat-label">Emoción Dominante</div>
+                <div class="stat-value" id="statEmocion" style="font-size: 1.5em;">N/A</div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">◆</div>
+                <div class="stat-label">Estado del Sistema</div>
+                <div class="stat-value" id="statEstado" style="font-size: 1.5em;">Normal</div>
+            </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="charts-grid">
+            <!-- Emotion History Chart -->
+            <div class="chart-card">
+                <div class="chart-title">Historial de Emociones (Últimas 10 Detecciones)</div>
+                <div class="chart-container">
+                    <canvas id="emotionHistoryChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Current Emotion Distribution -->
+            <div class="chart-card">
+                <div class="chart-title">Distribución Actual de Emociones</div>
+                <div class="chart-container">
+                    <canvas id="emotionPieChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- People Count History -->
+        <div class="chart-card" style="margin-bottom: 30px;">
+            <div class="chart-title">Historial de Detección de Personas y Rostros</div>
+            <div class="chart-container" style="height: 250px;">
+                <canvas id="peopleHistoryChart"></canvas>
+            </div>
+        </div>
+
+        <!-- History Table -->
+        <div class="history-card">
+            <div class="chart-title">Registro de Eventos Recientes</div>
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th>Hora</th>
+                        <th>Personas</th>
+                        <th>Caras</th>
+                        <th>Emoción</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: #64748b;">
+                            Esperando datos...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // ========== CONFIGURACIÓN MQTT ==========
+        const broker = 'wss://broker.hivemq.com:8884/mqtt';
+        const topic = 'aglomeraciones/raspberry_pi/datos';
+
+        const client = mqtt.connect(broker);
+
+        // ========== VARIABLES GLOBALES ==========
+        let emotionHistory = [];
+        let peopleHistory = [];
+        let eventHistory = [];
+        const MAX_HISTORY = 10;
+        let previousData = { personas: 0, caras: 0 };
+
+        // ========== CHARTS ==========
+        // Emotion History Chart (Bar)
+        const emotionHistoryCtx = document.getElementById('emotionHistoryChart').getContext('2d');
+        const emotionHistoryChart = new Chart(emotionHistoryCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Happiness',
+                    data: [],
+                    backgroundColor: 'rgba(251, 191, 36, 0.6)',
+                    borderColor: 'rgba(251, 191, 36, 1)',
+                    borderWidth: 2
+                }, {
+                    label: 'Neutral',
+                    data: [],
+                    backgroundColor: 'rgba(148, 163, 184, 0.6)',
+                    borderColor: 'rgba(148, 163, 184, 1)',
+                    borderWidth: 2
+                }, {
+                    label: 'Sadness',
+                    data: [],
+                    backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 2
+                }, {
+                    label: 'Anger',
+                    data: [],
+                    backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    x: {
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#e2e8f0' }
+                    }
+                }
+            }
+        });
+
+        // Current Emotion Pie Chart
+        const emotionPieCtx = document.getElementById('emotionPieChart').getContext('2d');
+        const emotionPieChart = new Chart(emotionPieCtx, {
+            type: 'doughnut',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    backgroundColor: [
+                        'rgba(251, 191, 36, 0.8)',
+                        'rgba(148, 163, 184, 0.8)',
+                        'rgba(59, 130, 246, 0.8)',
+                        'rgba(239, 68, 68, 0.8)',
+                        'rgba(16, 185, 129, 0.8)',
+                        'rgba(168, 85, 247, 0.8)',
+                        'rgba(236, 72, 153, 0.8)',
+                        'rgba(249, 115, 22, 0.8)'
+                    ],
+                    borderWidth: 2,
+                    borderColor: '#1e293b'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#e2e8f0', padding: 15 }
+                    }
+                }
+            }
+        });
+
+        // People History Chart
+        const peopleHistoryCtx = document.getElementById('peopleHistoryChart').getContext('2d');
+        const peopleHistoryChart = new Chart(peopleHistoryCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Personas',
+                    data: [],
+                    borderColor: 'rgba(102, 126, 234, 1)',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4
+                }, {
+                    label: 'Caras',
+                    data: [],
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    x: {
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#e2e8f0' }
+                    }
+                }
+            }
+        });
+
+        // ========== MQTT HANDLERS ==========
+        client.on('connect', () => {
+            console.log('✅ Conectado al broker MQTT');
+            document.getElementById('connectionStatus').textContent = 'Conectado';
+            document.getElementById('connectionStatus').className = 'status connected';
+
+            client.subscribe(topic, (err) => {
+                if (!err) {
+                    console.log(`✅ Suscrito al topic: ${topic}`);
+                } else {
+                    console.error('❌ Error al suscribirse:', err);
+                }
+            });
+        });
+
+        client.on('message', (topic, message) => {
+            const data = JSON.parse(message.toString());
+            console.log('📩 Datos recibidos:', data);
+            actualizarDashboard(data);
+        });
+
+        client.on('error', (err) => {
+            console.error('❌ Error MQTT:', err);
+            document.getElementById('connectionStatus').textContent = 'Error de Conexión';
+            document.getElementById('connectionStatus').className = 'status disconnected';
+        });
+
+        // ========== ACTUALIZAR DASHBOARD ==========
+        function actualizarDashboard(data) {
+            // Actualizar timestamp
+            document.getElementById('timestamp').textContent = data.timestamp || new Date().toLocaleTimeString();
+
+            // Actualizar stats con animación de cambio
+            updateStatWithChange('statPersonas', 'changePersonas', data.conteo_personas, previousData.personas);
+            updateStatWithChange('statCaras', 'changeCaras', data.num_caras, previousData.caras);
+
+            document.getElementById('statEmocion').textContent = data.emocion_dominante || 'N/A';
+            document.getElementById('statEstado').textContent = data.aglomeracion ? 'Aglomeración' : 'Normal';
+            document.getElementById('statEstado').style.color = data.aglomeracion ? '#ef4444' : '#10b981';
+
+            // Mostrar/ocultar alerta
+            document.getElementById('alertBanner').className = data.aglomeracion ? 'alert-banner active' : 'alert-banner';
+
+            // Actualizar datos previos
+            previousData = { personas: data.conteo_personas, caras: data.num_caras };
+
+            // Actualizar gráfico de emociones actuales (pie)
+            if (data.emociones && Object.keys(data.emociones).length > 0) {
+                emotionPieChart.data.labels = Object.keys(data.emociones);
+                emotionPieChart.data.datasets[0].data = Object.values(data.emociones);
+                emotionPieChart.update();
+            }
+
+            // Actualizar historial de emociones
+            const timeLabel = new Date().toLocaleTimeString();
+            emotionHistory.push({
+                time: timeLabel,
+                emotions: data.emociones || {}
+            });
+
+            if (emotionHistory.length > MAX_HISTORY) {
+                emotionHistory.shift();
+            }
+
+            updateEmotionHistoryChart();
+
+            // Actualizar historial de personas
+            peopleHistory.push({
+                time: timeLabel,
+                personas: data.conteo_personas,
+                caras: data.num_caras
+            });
+
+            if (peopleHistory.length > MAX_HISTORY) {
+                peopleHistory.shift();
+            }
+
+            updatePeopleHistoryChart();
+
+            // Actualizar tabla de historial
+            addEventToHistory(data);
+        }
+
+        function updateStatWithChange(statId, changeId, newValue, oldValue) {
+            const statElement = document.getElementById(statId);
+            const changeElement = document.getElementById(changeId);
+
+            statElement.textContent = newValue;
+
+            const diff = newValue - oldValue;
+            if (diff !== 0) {
+                changeElement.textContent = (diff > 0 ? '+' : '') + diff;
+                changeElement.className = diff > 0 ? 'stat-change up' : 'stat-change down';
+                changeElement.style.display = 'inline-block';
+            } else {
+                changeElement.style.display = 'none';
+            }
+        }
+
+        function updateEmotionHistoryChart() {
+            const labels = emotionHistory.map(h => h.time);
+            const emotions = ['Happiness', 'Neutral', 'Sadness', 'Anger'];
+
+            emotionHistoryChart.data.labels = labels;
+
+            emotions.forEach((emotion, index) => {
+                emotionHistoryChart.data.datasets[index].data = emotionHistory.map(h => h.emotions[emotion] || 0);
+            });
+
+            emotionHistoryChart.update();
+        }
+
+        function updatePeopleHistoryChart() {
+            peopleHistoryChart.data.labels = peopleHistory.map(h => h.time);
+            peopleHistoryChart.data.datasets[0].data = peopleHistory.map(h => h.personas);
+            peopleHistoryChart.data.datasets[1].data = peopleHistory.map(h => h.caras);
+            peopleHistoryChart.update();
+        }
+
+        function addEventToHistory(data) {
+            const tbody = document.getElementById('historyTableBody');
+
+            if (eventHistory.length === 0) {
+                tbody.innerHTML = '';
+            }
+
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${data.timestamp || new Date().toLocaleTimeString()}</td>
+                <td><span class="badge info">${data.conteo_personas}</span></td>
+                <td><span class="badge info">${data.num_caras}</span></td>
+                <td>${data.emocion_dominante || 'N/A'}</td>
+                <td><span class="badge ${data.aglomeracion ? 'danger' : 'success'}">${data.aglomeracion ? 'Aglomeración' : 'Normal'}</span></td>
+            `;
+
+            tbody.insertBefore(row, tbody.firstChild);
+
+            eventHistory.push(data);
+
+            if (eventHistory.length > 10) {
+                tbody.removeChild(tbody.lastChild);
+                eventHistory.shift();
+            }
+        }
+    </script>
+</body>
+
+</html>
